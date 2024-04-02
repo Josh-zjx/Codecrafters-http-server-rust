@@ -1,5 +1,5 @@
 // Uncomment this block to pass the first stage
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
 
@@ -25,5 +25,14 @@ fn main() {
 }
 
 fn handle_client(mut stream: TcpStream) {
-    stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+    let mut buf = [0; 256];
+    let length = stream.read(&mut buf).unwrap();
+    let input = String::from_utf8(buf[..length].to_vec()).unwrap();
+    let lines: Vec<_> = input.split("\r\n").collect();
+    let first_line: Vec<_> = lines.first().unwrap().split(" ").collect();
+    if first_line.get(1).unwrap() == &"/" {
+        stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+    } else {
+        stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
+    }
 }

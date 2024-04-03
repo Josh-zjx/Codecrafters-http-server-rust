@@ -16,7 +16,10 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(_stream) => {
-                handle_client(_stream);
+                std::thread::spawn(|| {
+                    handle_client(_stream);
+                });
+                //handle_client(_stream);
                 println!("accepted new connection");
             }
             Err(e) => {

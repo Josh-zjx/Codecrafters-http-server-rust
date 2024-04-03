@@ -3,6 +3,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
 
+//const NOT_FOUND: String = String::from("HTTP/1.1 404 Not Found\r\n");
+
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
     println!("Logs from your program will appear here!");
@@ -29,10 +31,27 @@ fn handle_client(mut stream: TcpStream) {
     let length = stream.read(&mut buf).unwrap();
     let input = String::from_utf8(buf[..length].to_vec()).unwrap();
     let lines: Vec<_> = input.split("\r\n").collect();
-    let first_line: Vec<_> = lines.first().unwrap().split(" ").collect();
-    if first_line.get(1).unwrap() == &"/" {
+    let first_line: Vec<_> = lines.first().unwrap().split(' ').collect();
+    let path = first_line.get(1).unwrap();
+    if path == &"/" {
         stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+    } else if let Some(content) = path.strip_prefix("/echo/") {
+        stream
+            .write_all(generate_response(200, content).as_bytes())
+            .unwrap();
     } else {
         stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
+    }
+}
+
+fn generate_response(status: usize, text: &str) -> String {
+    if status == 404 {
+        "HTTP/1.1 404 Not Found\r\n\r\n".to_string()
+    } else {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}\r\n",
+            text.len(),
+            text
+        )
     }
 }

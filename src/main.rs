@@ -46,37 +46,58 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
     let input = String::from_utf8(buf[..length].to_vec()).unwrap();
     let lines: Vec<_> = input.split("\r\n").collect();
     let first_line: Vec<_> = lines.first().unwrap().split(' ').collect();
+    let operator = first_line.first().unwrap();
     let path = first_line.get(1).unwrap();
-    if path == &"/" {
-        stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
-    } else if let Some(content) = path.strip_prefix("/echo/") {
-        stream
-            .write_all(generate_response(200, content, "text/plain").as_bytes())
-            .unwrap();
-    } else if path == &"/user-agent" {
-        let (status, content) = if let Some(line) = lines.get(2) {
-            if let Some(content) = line.strip_prefix("User-Agent: ") {
-                (200, content)
-            } else {
-                (404, "")
+    match *operator {
+        "POST" => {
+            if let Some(filename) = path.strip_prefix("/files/") {
+                let file_path = current_directory.join(filename);
+                if let Ok(mut file) = std::fs::File::create(file_path) {
+                    file.write_all(lines.last().unwrap().as_bytes()).unwrap();
+                    stream.write_all(b"HTTP/1.1 201 Created\r\n\r\n").unwrap();
+                } else {
+                    stream
+                        .write_all(generate_response(404, "", "").as_bytes())
+                        .unwrap();
+                }
             }
-        } else {
-            (404, "")
-        };
-        stream
-            .write_all(generate_response(status, content, "text/plain").as_bytes())
-            .unwrap();
-    } else if let Some(filename) = path.strip_prefix("/files/") {
-        let file_path = current_directory.join(filename);
-        if let Ok(content) = read_to_string(file_path) {
-            stream
-                .write_all(generate_response(200, &content, "application/octet-stream").as_bytes())
-                .unwrap();
-        } else {
-            stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
         }
-    } else {
-        stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
+        "GET" => {
+            if *path == "/" {
+                stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
+            } else if let Some(content) = path.strip_prefix("/echo/") {
+                stream
+                    .write_all(generate_response(200, content, "text/plain").as_bytes())
+                    .unwrap();
+            } else if *path == "/user-agent" {
+                let (status, content) = if let Some(line) = lines.get(2) {
+                    if let Some(content) = line.strip_prefix("User-Agent: ") {
+                        (200, content)
+                    } else {
+                        (404, "")
+                    }
+                } else {
+                    (404, "")
+                };
+                stream
+                    .write_all(generate_response(status, content, "text/plain").as_bytes())
+                    .unwrap();
+            } else if let Some(filename) = path.strip_prefix("/files/") {
+                let file_path = current_directory.join(filename);
+                if let Ok(content) = read_to_string(file_path) {
+                    stream
+                        .write_all(
+                            generate_response(200, &content, "application/octet-stream").as_bytes(),
+                        )
+                        .unwrap();
+                } else {
+                    stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
+                }
+            } else {
+                stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
+            }
+        }
+        _default => {}
     }
 }
 

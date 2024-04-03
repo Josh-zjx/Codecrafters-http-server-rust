@@ -39,6 +39,19 @@ fn handle_client(mut stream: TcpStream) {
         stream
             .write_all(generate_response(200, content).as_bytes())
             .unwrap();
+    } else if path == &"/user-agent" {
+        let (status, content) = if let Some(line) = lines.get(2) {
+            if let Some(content) = line.strip_prefix("User-Agent: ") {
+                (200, content)
+            } else {
+                (404, "")
+            }
+        } else {
+            (404, "")
+        };
+        stream
+            .write_all(generate_response(status, content).as_bytes())
+            .unwrap();
     } else {
         stream.write_all(b"HTTP/1.1 404 Not Found\r\n\r\n").unwrap();
     }

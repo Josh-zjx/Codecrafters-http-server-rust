@@ -1,3 +1,7 @@
+use bytes::Bytes;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
+use nom::AsBytes;
 use std::fs::read_to_string;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -138,34 +142,29 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
                 stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
             } else if let Some(content) = parsed_header.path.strip_prefix("/echo/") {
                 stream
-                    .write_all(
-                        generate_response(content, "text/plain", &parsed_header.accept_encoding)
-                            .as_bytes(),
-                    )
+                    .write_all(&generate_response(
+                        content,
+                        "text/plain",
+                        &parsed_header.accept_encoding,
+                    ))
                     .unwrap();
             } else if parsed_header.path == "/user-agent" {
                 stream
-                    .write_all(
-                        generate_response(
-                            &parsed_header.user_agent,
-                            "text/plain",
-                            &parsed_header.accept_encoding,
-                        )
-                        .as_bytes(),
-                    )
+                    .write_all(&generate_response(
+                        &parsed_header.user_agent,
+                        "text/plain",
+                        &parsed_header.accept_encoding,
+                    ))
                     .unwrap();
             } else if let Some(filename) = parsed_header.path.strip_prefix("/files/") {
                 let file_path = current_directory.join(filename);
                 if let Ok(content) = read_to_string(file_path) {
                     stream
-                        .write_all(
-                            generate_response(
-                                &content,
-                                "application/octet-stream",
-                                &parsed_header.accept_encoding,
-                            )
-                            .as_bytes(),
-                        )
+                        .write_all(&generate_response(
+                            &content,
+                            "application/octet-stream",
+                            &parsed_header.accept_encoding,
+                        ))
                         .unwrap();
                 } else {
                     stream.write_all(RES_404).unwrap();
@@ -177,21 +176,30 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
     }
 }
 
-fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> String {
+fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> Bytes {
     if content_encoding.is_empty() {
-        format!(
+        Bytes::from(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
             content_type,
             text.len(),
             text
-        )
+        ))
     } else {
-        format!(
-        "HTTP/1.1 200 OK\r\nContent-Encoding: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
+        let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+        let _ = e.write_all(text.as_bytes());
+        let compressed_text = e.finish().unwrap();
+        let response_header = Bytes::from(format!(
+        "HTTP/1.1 200 OK\r\nContent-Encoding: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
         content_encoding,
         content_type,
-        text.len(),
-        text
-    )
+        compressed_text.len(),
+    ));
+        [
+            response_header,
+            Bytes::from(compressed_text),
+            Bytes::from("\r\n"),
+        ]
+        .concat()
+        .into()
     }
 }

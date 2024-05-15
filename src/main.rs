@@ -96,8 +96,11 @@ fn parse_request_header(lines: &[&str]) -> Option<RequestHeader> {
                 }
                 // TODO: Implement multiple encoding protocol
                 "Accept-Encoding:" => {
-                    if value == "gzip" {
-                        parsed_header.accept_encoding = value.to_string();
+                    let encodings: Vec<&str> = value.split(", ").collect();
+                    for encoding in encodings.iter() {
+                        if *encoding == "gzip" {
+                            parsed_header.accept_encoding = value.to_string();
+                        }
                     }
                 }
 

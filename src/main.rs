@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use flate2::write::DeflateEncoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use nom::AsBytes;
@@ -31,6 +32,7 @@ fn main() {
                 std::thread::spawn(|| {
                     handle_client(_stream, current_directory);
                 });
+                #[cfg(debug_assertions)]
                 println!("accepted new connection");
             }
             Err(e) => {
@@ -69,11 +71,9 @@ impl Default for RequestHeader<'_> {
     }
 }
 
+/// Parse the request header
 fn parse_request_header<'a>(lines: &'a [&str]) -> Option<RequestHeader<'a>> {
     let mut parsed_header = RequestHeader::default();
-
-    // Request Header Method section
-    // Parse the first line of the http header
 
     for line in lines.iter() {
         if let Some((key, value)) = line.split_once(' ') {
@@ -103,6 +103,8 @@ fn parse_request_header<'a>(lines: &'a [&str]) -> Option<RequestHeader<'a>> {
                     for encoding in encodings.iter() {
                         if *encoding == "gzip" {
                             parsed_header.accept_encoding = "gzip";
+                        } else if *encoding == "deflate" {
+                            parsed_header.accept_encoding = "deflate";
                         }
                     }
                 }
@@ -176,14 +178,9 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
 }
 
 fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> Bytes {
-    if content_encoding.is_empty() {
-        Bytes::from(format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
-            content_type,
-            text.len(),
-            text
-        ))
-    } else {
+    if content_encoding == "gzip" {
+        // Using Gzip compression if acceptable
+
         let mut e = GzEncoder::new(Vec::new(), Compression::default());
         let _ = e.write_all(text.as_bytes());
         let compressed_text = e.finish().unwrap();
@@ -200,5 +197,32 @@ fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> 
         ]
         .concat()
         .into()
+    } else if content_encoding == "deflate" {
+        // using deflate is acceptable
+        //
+        let mut e = DeflateEncoder::new(Vec::new(), Compression::default());
+        let _ = e.write_all(text.as_bytes());
+        let compressed_text = e.finish().unwrap();
+        let response_header = Bytes::from(format!(
+        "HTTP/1.1 200 OK\r\nContent-Encoding: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n",
+        content_encoding,
+        content_type,
+        compressed_text.len(),
+    ));
+        [
+            response_header,
+            Bytes::from(compressed_text),
+            Bytes::from("\r\n"),
+        ]
+        .concat()
+        .into()
+    } else {
+        // fallback to non-compression if no compression supported
+        Bytes::from(format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
+            content_type,
+            text.len(),
+            text
+        ))
     }
 }

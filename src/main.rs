@@ -1,10 +1,9 @@
 use core::str;
 use std::fs::read_to_string;
-use std::path::Path;
-// Uncomment this block to pass the first stage
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
+use std::path::Path;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -38,17 +37,90 @@ fn main() {
     }
 }
 
+#[derive(Clone, Debug, Copy)]
+pub enum RequestMethod {
+    GET,
+    POST,
+}
+
+#[derive(Debug, Clone)]
+struct RequestHeader {
+    pub method: RequestMethod,
+    pub host: String,
+    pub user_agent: String,
+    pub accept_encoding: String,
+    pub accept: String,
+    pub path: String,
+}
+
+impl Default for RequestHeader {
+    fn default() -> Self {
+        RequestHeader {
+            method: RequestMethod::GET,
+            host: String::default(),
+            user_agent: String::default(),
+            accept_encoding: String::default(),
+            accept: String::default(),
+            path: String::default(),
+        }
+    }
+}
+
+fn parse_request_header(lines: &[&str]) -> Option<RequestHeader> {
+    let mut parsed_header = RequestHeader::default();
+
+    // Request Header Method section
+    // Parse the first line of the http header
+
+    for line in lines.iter() {
+        if let Some((key, value)) = line.split_once(' ') {
+            match key {
+                "POST" => {
+                    parsed_header.method = RequestMethod::POST;
+                    parsed_header.path = value.split(' ').next()?.to_string();
+                }
+                "GET" => {
+                    parsed_header.method = RequestMethod::GET;
+                    parsed_header.path = value.split(' ').next()?.to_string();
+                }
+                "Host:" => {
+                    parsed_header.host = value.to_string();
+                }
+
+                "User-Agent:" => {
+                    parsed_header.user_agent = value.to_string();
+                }
+
+                "Accept:" => {
+                    parsed_header.accept = value.to_string();
+                }
+                // TODO: Implement multiple encoding protocol
+                "Accept-Encoding:" => {
+                    if value == "gzip" {
+                        parsed_header.accept_encoding = value.to_string();
+                    }
+                }
+
+                _default => return Some(parsed_header),
+            }
+        }
+    }
+
+    Some(parsed_header)
+}
+
 fn handle_client(mut stream: TcpStream, current_directory: &Path) {
     let mut buf = [0; 256];
     let length = stream.read(&mut buf).unwrap();
     let input = String::from_utf8(buf[..length].to_vec()).unwrap();
     let lines: Vec<_> = input.split("\r\n").collect();
-    let first_line: Vec<_> = lines.first().unwrap().split(' ').collect();
-    let operator = first_line.first().unwrap();
-    let path = first_line.get(1).unwrap();
-    match *operator {
-        "POST" => {
-            if let Some(filename) = path.strip_prefix("/files/") {
+
+    // Parse the header buffer
+    let parsed_header = parse_request_header(&lines).unwrap();
+
+    match parsed_header.method {
+        RequestMethod::POST => {
+            if let Some(filename) = parsed_header.path.strip_prefix("/files/") {
                 let file_path = current_directory.join(filename);
                 if let Ok(mut file) = std::fs::File::create(file_path) {
                     file.write_all(lines.last().unwrap().as_bytes()).unwrap();
@@ -58,31 +130,38 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
                 }
             }
         }
-        "GET" => {
-            if *path == "/" {
+        RequestMethod::GET => {
+            if parsed_header.path == "/" {
                 stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n").unwrap();
-            } else if let Some(content) = path.strip_prefix("/echo/") {
+            } else if let Some(content) = parsed_header.path.strip_prefix("/echo/") {
                 stream
-                    .write_all(generate_response(content, "text/plain").as_bytes())
+                    .write_all(
+                        generate_response(content, "text/plain", &parsed_header.accept_encoding)
+                            .as_bytes(),
+                    )
                     .unwrap();
-            } else if *path == "/user-agent" {
-                if let Some(line) = lines.get(2) {
-                    if let Some(content) = line.strip_prefix("User-Agent: ") {
-                        stream
-                            .write_all(generate_response(content, "text/plain").as_bytes())
-                            .unwrap();
-                    } else {
-                        stream.write_all(RES_404).unwrap();
-                    }
-                } else {
-                    stream.write_all(RES_404).unwrap();
-                };
-            } else if let Some(filename) = path.strip_prefix("/files/") {
+            } else if parsed_header.path == "/user-agent" {
+                stream
+                    .write_all(
+                        generate_response(
+                            &parsed_header.user_agent,
+                            "text/plain",
+                            &parsed_header.accept_encoding,
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            } else if let Some(filename) = parsed_header.path.strip_prefix("/files/") {
                 let file_path = current_directory.join(filename);
                 if let Ok(content) = read_to_string(file_path) {
                     stream
                         .write_all(
-                            generate_response(&content, "application/octet-stream").as_bytes(),
+                            generate_response(
+                                &content,
+                                "application/octet-stream",
+                                &parsed_header.accept_encoding,
+                            )
+                            .as_bytes(),
                         )
                         .unwrap();
                 } else {
@@ -96,11 +175,21 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
     }
 }
 
-fn generate_response(text: &str, content_type: &str) -> String {
-    format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
+fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> String {
+    if content_encoding.is_empty() {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
+            content_type,
+            text.len(),
+            text
+        )
+    } else {
+        format!(
+        "HTTP/1.1 200 OK\r\nContent-Encoding: {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}\r\n",
+        content_encoding,
         content_type,
         text.len(),
         text
     )
+    }
 }

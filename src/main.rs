@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use flate2::write::ZlibEncoder;
+use flate2::write::GzEncoder;
 use flate2::Compression;
 use nom::AsBytes;
 use std::fs::read_to_string;
@@ -185,7 +185,7 @@ fn generate_response(text: &str, content_type: &str, content_encoding: &str) -> 
             text
         ))
     } else {
-        let mut e = ZlibEncoder::new(Vec::new(), Compression::default());
+        let mut e = GzEncoder::new(Vec::new(), Compression::default());
         let _ = e.write_all(text.as_bytes());
         let compressed_text = e.finish().unwrap();
         let response_header = Bytes::from(format!(

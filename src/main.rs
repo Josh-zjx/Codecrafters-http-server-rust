@@ -1,10 +1,10 @@
-use core::str;
 use std::fs::read_to_string;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::path::Path;
 use std::path::PathBuf;
+use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -99,7 +99,7 @@ fn parse_request_header(lines: &[&str]) -> Option<RequestHeader> {
                     let encodings: Vec<&str> = value.split(", ").collect();
                     for encoding in encodings.iter() {
                         if *encoding == "gzip" {
-                            parsed_header.accept_encoding = value.to_string();
+                            parsed_header.accept_encoding = String::from_str("gzip").unwrap();
                         }
                     }
                 }
@@ -173,8 +173,7 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
             } else {
                 stream.write_all(RES_404).unwrap();
             }
-        }
-        _default => {}
+        } //_default => {}
     }
 }
 

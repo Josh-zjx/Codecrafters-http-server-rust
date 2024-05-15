@@ -8,7 +8,6 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 use std::path::Path;
 use std::path::PathBuf;
-use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -48,29 +47,29 @@ pub enum RequestMethod {
 }
 
 #[derive(Debug, Clone)]
-struct RequestHeader {
+struct RequestHeader<'a> {
     pub method: RequestMethod,
-    pub host: String,
-    pub user_agent: String,
-    pub accept_encoding: String,
-    pub accept: String,
-    pub path: String,
+    pub host: &'a str,
+    pub user_agent: &'a str,
+    pub accept_encoding: &'a str,
+    pub accept: &'a str,
+    pub path: &'a str,
 }
 
-impl Default for RequestHeader {
+impl Default for RequestHeader<'_> {
     fn default() -> Self {
         RequestHeader {
             method: RequestMethod::GET,
-            host: String::default(),
-            user_agent: String::default(),
-            accept_encoding: String::default(),
-            accept: String::default(),
-            path: String::default(),
+            host: "",
+            user_agent: "",
+            accept_encoding: "",
+            accept: "",
+            path: "",
         }
     }
 }
 
-fn parse_request_header(lines: &[&str]) -> Option<RequestHeader> {
+fn parse_request_header<'a>(lines: &'a [&str]) -> Option<RequestHeader<'a>> {
     let mut parsed_header = RequestHeader::default();
 
     // Request Header Method section
@@ -81,29 +80,29 @@ fn parse_request_header(lines: &[&str]) -> Option<RequestHeader> {
             match key {
                 "POST" => {
                     parsed_header.method = RequestMethod::POST;
-                    parsed_header.path = value.split(' ').next()?.to_string();
+                    parsed_header.path = value.split(' ').next()?;
                 }
                 "GET" => {
                     parsed_header.method = RequestMethod::GET;
-                    parsed_header.path = value.split(' ').next()?.to_string();
+                    parsed_header.path = value.split(' ').next()?;
                 }
                 "Host:" => {
-                    parsed_header.host = value.to_string();
+                    parsed_header.host = value;
                 }
 
                 "User-Agent:" => {
-                    parsed_header.user_agent = value.to_string();
+                    parsed_header.user_agent = value;
                 }
 
                 "Accept:" => {
-                    parsed_header.accept = value.to_string();
+                    parsed_header.accept = value;
                 }
                 // TODO: Implement multiple encoding protocol
                 "Accept-Encoding:" => {
                     let encodings: Vec<&str> = value.split(", ").collect();
                     for encoding in encodings.iter() {
                         if *encoding == "gzip" {
-                            parsed_header.accept_encoding = String::from_str("gzip").unwrap();
+                            parsed_header.accept_encoding = "gzip";
                         }
                     }
                 }
@@ -145,15 +144,15 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
                     .write_all(&generate_response(
                         content,
                         "text/plain",
-                        &parsed_header.accept_encoding,
+                        parsed_header.accept_encoding,
                     ))
                     .unwrap();
             } else if parsed_header.path == "/user-agent" {
                 stream
                     .write_all(&generate_response(
-                        &parsed_header.user_agent,
+                        parsed_header.user_agent,
                         "text/plain",
-                        &parsed_header.accept_encoding,
+                        parsed_header.accept_encoding,
                     ))
                     .unwrap();
             } else if let Some(filename) = parsed_header.path.strip_prefix("/files/") {
@@ -163,7 +162,7 @@ fn handle_client(mut stream: TcpStream, current_directory: &Path) {
                         .write_all(&generate_response(
                             &content,
                             "application/octet-stream",
-                            &parsed_header.accept_encoding,
+                            parsed_header.accept_encoding,
                         ))
                         .unwrap();
                 } else {
